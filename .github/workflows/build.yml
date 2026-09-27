@@ -18,41 +18,18 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Python 3.12.9
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12.9'
-
-      - name: Replace system python3 with 3.12.9
-        run: |
-          echo "=== 替换前 ==="
-          python --version
-          python3 --version 2>/dev/null || true
-          which python python3
-          echo ""
-          # 用 setup-python 的 3.12.9 替换 /usr/bin/python3
-          PY312=$(which python)
-          echo "Python 3.12.9 路径: $PY312"
-          sudo ln -sf "$PY312" /usr/bin/python3
-          sudo ln -sf "$PY312" /usr/bin/python
-          echo ""
-          echo "=== 替换后 ==="
-          python --version
-          python3 --version
-          ls -la /usr/bin/python3 /usr/bin/python
-
       - name: Install system deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq autoconf libtool pkg-config zlib1g-dev \
             libncurses5-dev libtinfo-dev libffi-dev libssl-dev cmake zip unzip \
-            git wget file
+            python3-pip python3-setuptools python3-wheel git wget file
 
       - name: Install buildozer
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install --upgrade cython==0.29.36
-          python3 -m pip install buildozer==1.5.0 python-for-android
+          pip3 install --upgrade pip --break-system-packages
+          pip3 install --upgrade cython==0.29.36 --break-system-packages
+          pip3 install buildozer==1.5.0 python-for-android --break-system-packages
 
       - name: Build APK
         env:
@@ -60,6 +37,7 @@ jobs:
         run: |
           echo "=== Python 版本 ==="
           python3 --version
+          which python3
           echo ""
           echo "=== Buildozer 版本 ==="
           buildozer --version

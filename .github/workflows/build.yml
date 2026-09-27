@@ -21,7 +21,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq autoconf libtool pkg-config zlib1g-dev \
+          sudo apt-get install -y -qq autoconf libtool libtool-bin pkg-config zlib1g-dev \
             libncurses5-dev libtinfo-dev libffi-dev libssl-dev cmake zip unzip \
             python3-pip python3-setuptools python3-wheel git wget file
 

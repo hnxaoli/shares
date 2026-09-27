@@ -18,29 +18,36 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      # ⭐ 关键：先装 Python 3.12.9，让它成为 hostpython3
+      - name: Set up Python 3.12.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.9'
+
       - name: Install system deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq autoconf libtool pkg-config zlib1g-dev \
             libncurses5-dev libtinfo-dev libffi-dev libssl-dev cmake zip unzip \
-            python3-pip python3-setuptools python3-wheel git wget file
+            git wget file
 
       - name: Install buildozer
         run: |
-          pip install --upgrade pip --break-system-packages
-          pip install --upgrade cython==0.29.36 --break-system-packages
-          pip install buildozer==1.5.0 python-for-android --break-system-packages
+          python --version
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade cython==0.29.36
+          python -m pip install buildozer==1.5.0 python-for-android
 
       - name: Build APK
         env:
           BUILDOZER_LOG_LEVEL: 2
         run: |
+          echo "=== Python 版本 ==="
+          python --version
+          which python
+          echo ""
           echo "=== Buildozer 版本 ==="
           buildozer --version
-          echo ""
-          echo "=== 清理旧缓存 ==="
-          rm -rf .buildozer android bin 2>/dev/null || true
-          echo "缓存已清理"
           echo ""
           echo "=== 开始构建 ==="
           buildozer android debug

@@ -32,6 +32,23 @@ jobs:
           pip3 install --upgrade cython==0.29.36 --break-system-packages
           pip3 install buildozer==1.5.0 python-for-android --break-system-packages
 
+      - name: Patch p4a libffi recipe
+        run: |
+          # p4a 内置 libffi recipe 强制跑 `autoreconf -vif`，在 Ubuntu 24.04 上失败
+          # 直接用我们跳过 autoreconf 的版本覆盖内置 recipe
+          P4A_DIR=$(python3 -c "import pythonforandroid; import os; print(os.path.dirname(pythonforandroid.__file__))")
+          echo "p4a 安装目录: $P4A_DIR"
+          echo ""
+          echo "=== 覆盖 libffi recipe ==="
+          echo "复制 recipes/libffi/__init__.py -> $P4A_DIR/recipes/libffi/__init__.py"
+          sudo cp recipes/libffi/__init__.py "$P4A_DIR/recipes/libffi/__init__.py"
+          echo "复制 recipes/libffi/remove-version-info.patch -> $P4A_DIR/recipes/libffi/remove-version-info.patch"
+          sudo cp recipes/libffi/remove-version-info.patch "$P4A_DIR/recipes/libffi/remove-version-info.patch"
+          echo ""
+          echo "=== 验证 patch 后的 recipe ==="
+          grep -n "autoreconf\|autogen\|configure" "$P4A_DIR/recipes/libffi/__init__.py" || true
+          echo "=== Recipe patch 完成 ==="
+
       - name: Build APK
         env:
           BUILDOZER_LOG_LEVEL: 2

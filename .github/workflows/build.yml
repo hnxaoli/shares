@@ -34,6 +34,7 @@ jobs:
       - name: Build APK
         env:
           BUILDOZER_LOG_LEVEL: 2
+          P4A_LOCAL_RECIPES: recipes
         run: |
           echo "=== Python 版本 ==="
           python3 --version
@@ -43,7 +44,7 @@ jobs:
           buildozer --version
           echo ""
           echo "=== 开始构建 ==="
-          buildozer android debug
+          buildozer android debug --local-recipes=recipes
         timeout-minutes: 60
 
       - name: Show build artifacts

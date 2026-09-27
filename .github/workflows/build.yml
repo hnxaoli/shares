@@ -23,16 +23,17 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq autoconf libtool pkg-config zlib1g-dev \
             libncurses5-dev libtinfo-dev libffi-dev libssl-dev cmake zip unzip \
-            python3-pip python3-setuptools python3-wheel cython git wget file
+            python3-pip python3-setuptools python3-wheel git wget file
 
       - name: Install buildozer
         run: |
           pip install --upgrade pip
+          pip install --upgrade cython==0.29.36
           pip install buildozer==1.5.0 python-for-android
 
       - name: Build APK
         run: buildozer android debug 2>&1 | tail -100
-        timeout-minutes: 45
+        timeout-minutes: 60
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

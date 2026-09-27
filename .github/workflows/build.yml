@@ -38,11 +38,9 @@ jobs:
           echo "=== Buildozer 版本 ==="
           buildozer --version
           echo ""
-          echo "=== 工作目录 ==="
-          pwd && ls -la
-          echo ""
-          echo "=== buildozer.spec ==="
-          cat buildozer.spec
+          echo "=== 清理旧缓存 ==="
+          rm -rf .buildozer android bin 2>/dev/null || true
+          echo "缓存已清理"
           echo ""
           echo "=== 开始构建 ==="
           buildozer android debug

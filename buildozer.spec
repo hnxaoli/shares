@@ -39,3 +39,7 @@ android.accept_sdk_license = True
 log_level = 2
 warn_on_root = 1
 clean_build = 1
+
+# ─── Python-For-Android 选项 ───
+[p4a]
+local_recipes = recipes

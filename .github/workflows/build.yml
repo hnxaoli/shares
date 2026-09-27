@@ -21,9 +21,10 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq autoconf libtool libtool-bin pkg-config zlib1g-dev \
-            libncurses5-dev libtinfo-dev libffi-dev libssl-dev cmake zip unzip \
-            python3-pip python3-setuptools python3-wheel git wget file
+          # libltdl-dev provides LT_SYS_SYMBOL_USCORE macro needed by p4a's autoreconf
+          sudo apt-get install -y -qq autoconf automake autopoint libtool libtool-bin libltdl-dev \
+            pkg-config zlib1g-dev libncurses5-dev libtinfo-dev libffi-dev libssl-dev \
+            cmake zip unzip python3-pip python3-setuptools python3-wheel git wget file patch
 
       - name: Install buildozer
         run: |
@@ -34,7 +35,6 @@ jobs:
       - name: Build APK
         env:
           BUILDOZER_LOG_LEVEL: 2
-          P4A_LOCAL_RECIPES: recipes
         run: |
           echo "=== Python 版本 ==="
           python3 --version
@@ -44,8 +44,9 @@ jobs:
           buildozer --version
           echo ""
           echo "=== 开始构建 ==="
+          # --local-recipes=recipes 让 p4a 优先使用我们的自定义 recipe（跳过 autoreconf）
           buildozer android debug --local-recipes=recipes
-        timeout-minutes: 60
+        timeout-minutes: 90
 
       - name: Show build artifacts
         run: |

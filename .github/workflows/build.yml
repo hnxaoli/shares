@@ -27,13 +27,34 @@ jobs:
 
       - name: Install buildozer
         run: |
-          pip install --upgrade pip
-          pip install --upgrade cython==0.29.36
-          pip install buildozer==1.5.0 python-for-android
+          pip install --upgrade pip --break-system-packages
+          pip install --upgrade cython==0.29.36 --break-system-packages
+          pip install buildozer==1.5.0 python-for-android --break-system-packages
 
       - name: Build APK
-        run: buildozer android debug 2>&1 | tail -100
+        env:
+          BUILDOZER_LOG_LEVEL: 2
+        run: |
+          echo "=== Buildozer 版本 ==="
+          buildozer --version
+          echo ""
+          echo "=== 工作目录 ==="
+          pwd && ls -la
+          echo ""
+          echo "=== buildozer.spec ==="
+          cat buildozer.spec
+          echo ""
+          echo "=== 开始构建 ==="
+          buildozer android debug
         timeout-minutes: 60
+
+      - name: Show build artifacts
+        run: |
+          echo "=== bin/ 目录 ==="
+          ls -la bin/ 2>/dev/null || echo "bin/ 目录不存在"
+          echo ""
+          echo "=== find APK 文件 ==="
+          find . -name "*.apk" -type f 2>/dev/null || echo "没找到 APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

@@ -18,11 +18,28 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # ⭐ 关键：先装 Python 3.12.9，让它成为 hostpython3
       - name: Set up Python 3.12.9
         uses: actions/setup-python@v5
         with:
           python-version: '3.12.9'
+
+      - name: Replace system python3 with 3.12.9
+        run: |
+          echo "=== 替换前 ==="
+          python --version
+          python3 --version 2>/dev/null || true
+          which python python3
+          echo ""
+          # 用 setup-python 的 3.12.9 替换 /usr/bin/python3
+          PY312=$(which python)
+          echo "Python 3.12.9 路径: $PY312"
+          sudo ln -sf "$PY312" /usr/bin/python3
+          sudo ln -sf "$PY312" /usr/bin/python
+          echo ""
+          echo "=== 替换后 ==="
+          python --version
+          python3 --version
+          ls -la /usr/bin/python3 /usr/bin/python
 
       - name: Install system deps
         run: |
@@ -33,18 +50,16 @@ jobs:
 
       - name: Install buildozer
         run: |
-          python --version
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade cython==0.29.36
-          python -m pip install buildozer==1.5.0 python-for-android
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade cython==0.29.36
+          python3 -m pip install buildozer==1.5.0 python-for-android
 
       - name: Build APK
         env:
           BUILDOZER_LOG_LEVEL: 2
         run: |
           echo "=== Python 版本 ==="
-          python --version
-          which python
+          python3 --version
           echo ""
           echo "=== Buildozer 版本 ==="
           buildozer --version

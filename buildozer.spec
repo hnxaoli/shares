@@ -28,7 +28,7 @@ fullscreen = 0
 
 # ─── Android SDK/NDK ───
 android.api = 33
-android.minapi = 21
+android.minapi = 24
 android.sdk = 24
 android.archs = arm64-v8a, armeabi-v7a
 android.permissions = INTERNET,ACCESS_NETWORK_STATE

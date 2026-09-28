@@ -61,8 +61,13 @@ jobs:
           echo "=== Buildozer 版本 ==="
           buildozer --version
           echo ""
+          # ⚠️ 清理 .buildozer 缓存：残留 venv 里的 pip 文件混搭（build_env.py 新 + spinners.py 旧）
+          # 导致 ImportError: cannot import name 'open_rich_spinner'
+          echo "=== 清理 .buildozer 缓存 ==="
+          rm -rf .buildozer
+          echo "缓存已清理"
+          echo ""
           echo "=== 开始构建 ==="
-          # --local-recipes=recipes 让 p4a 优先使用我们的自定义 recipe（跳过 autoreconf）
           buildozer android debug --local-recipes=recipes
         timeout-minutes: 90
 

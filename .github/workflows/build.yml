@@ -37,28 +37,24 @@ jobs:
           # 验证 pip 完整（build_env.py 能成功 import spinners）
           python3 -c "from pip._internal.cli.spinners import open_rich_spinner; print('pip OK: open_rich_spinner available')"
 
-      - name: Patch p4a + pip
+      - name: Patch p4a (libffi + pip venv fallback)
         run: |
           P4A_DIR=$(python3 -c "import pythonforandroid; import os; print(os.path.dirname(pythonforandroid.__file__))")
           echo "p4a: $P4A_DIR"
           echo ""
 
-          echo "=== 1. patch_pip.py: 给 spinners.py 加 open_rich_spinner fallback ==="
-          # 终极修法：p4a 创建 venv 后 pip 升级会混搭文件，旧 spinners.py 没有 open_rich_spinner
-          # → 直接给 host python 的 spinners.py 加 dummy，venv 继承后混搭也不怕
-          python3 patch_pip.py
-
-          echo ""
-          echo "=== 2. 覆盖 libffi recipe ==="
+          echo "=== 1. 覆盖 libffi recipe ==="
           sudo cp recipes/libffi/__init__.py "$P4A_DIR/recipes/libffi/__init__.py"
           sudo cp recipes/libffi/remove-version-info.patch "$P4A_DIR/recipes/libffi/remove-version-info.patch"
 
           echo ""
-          echo "=== 3. patch_p4a.py: -U → --force-reinstall + 清 __pycache__ ==="
+          echo "=== 2. patch_p4a.py: venv pip 升级前先 patch spinners.py ==="
+          # 终极修法：build.py:878 创建 venv (hostpython3 3.11.9) 后升级 pip 会混搭
+          # → 在 shell 命令里加 venv/bin/python -c patch，先给 venv 的 spinners.py 加 fallback
           python3 patch_p4a.py
 
           echo ""
-          echo "=== 全部 Patch 完成 ==="
+          echo "=== Patch 完成 ==="
 
       - name: Build APK
         env:

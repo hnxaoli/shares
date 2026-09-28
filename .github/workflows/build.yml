@@ -28,10 +28,14 @@ jobs:
 
       - name: Install buildozer
         run: |
-          # 锁定 pip < 24.3：open_rich_spinner 在 pip 24.3+ 才引入，p4a 的 venv pip 会冲突
-          pip3 install --upgrade 'pip<24.3' --break-system-packages
+          # ⚠️ 必须升 pip 到最新：p4a 创建 venv 时复制系统 pip，然后升级 venv pip
+          # 如果系统 pip 太旧，升级时会导致 venv 内 pip 文件混搭（build_env.py 新 + spinners.py 旧）
+          # → ImportError: cannot import name 'open_rich_spinner'
+          python3 -m pip install --upgrade pip --break-system-packages
           pip3 install --upgrade cython==0.29.36 --break-system-packages
           pip3 install buildozer==1.5.0 python-for-android --break-system-packages
+          # 验证 pip 完整（build_env.py 能成功 import spinners）
+          python3 -c "from pip._internal.cli.spinners import open_rich_spinner; print('pip OK: open_rich_spinner available')"
 
       - name: Patch p4a libffi recipe
         run: |

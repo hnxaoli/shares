@@ -28,7 +28,8 @@ jobs:
 
       - name: Install buildozer
         run: |
-          pip3 install --upgrade pip --break-system-packages
+          # 锁定 pip < 24.3：open_rich_spinner 在 pip 24.3+ 才引入，p4a 的 venv pip 会冲突
+          pip3 install --upgrade 'pip<24.3' --break-system-packages
           pip3 install --upgrade cython==0.29.36 --break-system-packages
           pip3 install buildozer==1.5.0 python-for-android --break-system-packages
 

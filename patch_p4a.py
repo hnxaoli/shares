@@ -70,6 +70,18 @@ def main():
     
     print(f"\n=== Patch 完成: {patched_files} 个文件被修改 ===")
     
+    # ⚠️ 关键：删掉所有 __pycache__，否则 Python 加载旧 .pyc 字节码！
+    print("\n=== 清理 __pycache__ ===")
+    import shutil
+    pycache_count = 0
+    for root, dirs, files in os.walk(p4a_dir):
+        for d in list(dirs):
+            if d == '__pycache__':
+                p = os.path.join(root, d)
+                shutil.rmtree(p)
+                pycache_count += 1
+    print(f"已删除 {pycache_count} 个 __pycache__ 目录")
+    
     # 验证：确认没有遗留的 -U pip / --upgrade pip（除了我们改的 --force-reinstall）
     print("\n=== 验证 ===")
     import subprocess

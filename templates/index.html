@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>股票分析</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    background: #1a1a2e; color: #eee;
+    overflow: hidden; height: 100vh; height: 100dvh;
+    display: flex; flex-direction: column;
+  }
+  /* 顶栏 */
+  .topbar {
+    padding: 10px 12px; background: #16213e;
+    display: flex; gap: 8px; align-items: center; flex-shrink: 0;
+  }
+  .topbar input {
+    flex: 1; padding: 9px 12px; border: none; border-radius: 6px;
+    background: #0f3460; color: #fff; font-size: 16px;
+    outline: none;
+  }
+  .topbar button {
+    padding: 9px 16px; border: none; border-radius: 6px;
+    background: #e94560; color: #fff; font-size: 15px; font-weight: 600;
+    cursor: pointer;
+  }
+  .topbar button:active { background: #c73650; }
+  .tabs { display: flex; gap: 6px; flex-shrink: 0; padding: 6px 10px; background: #16213e; }
+  .tab {
+    flex: 1; padding: 8px; text-align: center; border-radius: 6px;
+    background: #0f3460; font-size: 13px; cursor: pointer;
+  }
+  .tab.active { background: #e94560; }
+  .chart-bar {
+    flex-shrink: 0; padding: 8px 12px; background: #16213e;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid #0f3460;
+  }
+  .stock-info { font-size: 15px; }
+  .stock-name { font-weight: 700; color: #fff; }
+  .stock-code { color: #888; font-size: 12px; margin-left: 6px; }
+  .stock-price { font-size: 18px; font-weight: 700; margin-left: 12px; }
+  .up { color: #ff4757; }
+  .down { color: #2ed573; }
+  .change-pct { font-size: 13px; margin-left: 4px; }
+  .add-wl {
+    padding: 4px 10px; background: #0f3460; border-radius: 4px;
+    font-size: 12px; cursor: pointer;
+  }
+  /* 图表区 */
+  .chart-area {
+    flex: 1; display: flex; flex-direction: column; min-height: 0;
+  }
+  .chart-wrap { position: relative; flex: 1; min-height: 0; }
+  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+  /* 自选股 */
+  .watchlist {
+    flex-shrink: 0; max-height: 28vh; overflow-y: auto;
+    background: #16213e; border-top: 1px solid #0f3460;
+  }
+  .wl-title { padding: 8px 12px; font-size: 13px; color: #aaa; font-weight: 600; }
+  .wl-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 12px; border-bottom: 1px solid #0f3460; cursor: pointer;
+  }
+  .wl-item:active { background: #0f3460; }
+  .wl-left { display: flex; flex-direction: column; }
+  .wl-name { font-weight: 600; font-size: 14px; }
+  .wl-code { font-size: 11px; color: #888; }
+  .wl-right { text-align: right; display: flex; flex-direction: column; }
+  .wl-price { font-weight: 600; font-size: 15px; }
+  .wl-change { font-size: 12px; }
+  .wl-del { color: #e94560; padding: 4px 8px; font-size: 12px; }
+  /* 提示 */
+  .toast {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: rgba(0,0,0,0.85); padding: 12px 24px; border-radius: 8px;
+    font-size: 14px; z-index: 999; display: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <input id="search" placeholder="输入股票代码 如 600519" inputmode="numeric" autocomplete="off">
+  <button onclick="searchStock()">查询</button>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-period="day">日线</div>
+  <div class="tab" data-period="week">周线</div>
+  <div class="tab" data-period="month">月线</div>
+  <div class="tab" data-tab="kdj">KDJ</div>
+</div>
+
+<div class="chart-bar">
+  <div class="stock-info">
+    <span class="stock-name" id="s-name">--</span>
+    <span class="stock-code" id="s-code">--</span>
+    <span class="stock-price" id="s-price">--</span>
+    <span class="change-pct" id="s-change">--</span>
+  </div>
+  <div class="add-wl" onclick="toggleWatchlist()">+自选</div>
+</div>
+
+<div class="chart-area">
+  <div class="chart-wrap"><canvas id="candle"></canvas></div>
+  <div class="chart-wrap" style="flex:0.35"><canvas id="sub"></canvas></div>
+</div>
+
+<div class="watchlist" id="watchlist">
+  <div class="wl-title">自选股</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── 状态 ───
+let currentCode = "600519";
+let currentPeriod = "day";
+let currentTab = "macd"; // macd / kdj / rsi
+let chartData = [];
+
+// ─── 初始化 ───
+(async () => {
+  const cfg = await api("/api/config");
+  if (cfg.last_code) currentCode = cfg.last_code;
+  loadWatchlist();
+  await loadChart(currentCode);
+  // 回车搜索
+  document.getElementById("search").addEventListener("keydown", e => {
+    if (e.key === "Enter") searchStock();
+  });
+  // Tab 切换
+  document.querySelectorAll(".tab").forEach(t => {
+    t.addEventListener("click", () => {
+      const p = t.dataset.period;
+      const tab = t.dataset.tab;
+      document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+      t.classList.add("active");
+      if (p) { currentPeriod = p; loadChart(currentCode); }
+      else if (tab) { currentTab = tab; drawAll(); }
+    });
+  });
+  // Canvas resize
+  window.addEventListener("resize", drawAll);
+  window.addEventListener("orientationchange", drawAll);
+})();
+
+// ─── API ───
+async function api(path) {
+  try {
+    const r = await fetch(path);
+    return await r.json();
+  } catch (e) { console.error(e); return {}; }
+}
+async function apiPost(path, data) {
+  try {
+    const r = await fetch(path, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(data)
+    });
+    return await r.json();
+  } catch (e) { return {}; }
+}
+
+// ─── 核心函数 ───
+async function searchStock() {
+  const code = document.getElementById("search").value.trim();
+  if (!code) return;
+  showToast("加载中...");
+  currentCode = code;
+  await apiPost("/api/config", {last_code: code});
+  await loadChart(code);
+  document.getElementById("search").blur();
+}
+
+async function loadChart(code) {
+  const d = await api(`/api/chart?code=${code}&period=${currentPeriod}&n=300`);
+  if (d.error) { showToast(d.error); return; }
+  chartData = d.data || [];
+  document.getElementById("s-name").textContent = d.name || "--";
+  document.getElementById("s-code").textContent = d.code;
+  // 最新价 & 涨跌幅
+  if (chartData.length > 0) {
+    const last = chartData[chartData.length - 1];
+    const prev = chartData.length > 1 ? chartData[chartData.length - 2].close : last.open;
+    const chg = last.close - prev;
+    const pct = (chg / prev * 100).toFixed(2);
+    const up = chg >= 0;
+    document.getElementById("s-price").textContent = last.close.toFixed(2);
+    document.getElementById("s-price").className = "stock-price " + (up ? "up" : "down");
+    document.getElementById("s-change").textContent = (up ? "+" : "") + chg.toFixed(2) + " (" + (up ? "+" : "") + pct + "%)";
+    document.getElementById("s-change").className = "change-pct " + (up ? "up" : "down");
+  }
+  drawAll();
+  hideToast();
+}
+
+async function loadWatchlist() {
+  const wl = await api("/api/watchlist");
+  const codes = wl.map(w => w.split("|")[0]).join(",");
+  const rt = codes ? await api(`/api/realtime?codes=${codes}`) : {};
+  const box = document.getElementById("watchlist");
+  box.innerHTML = '<div class="wl-title">自选股 (' + wl.length + ')</div>';
+  if (wl.length === 0) {
+    box.innerHTML += '<div style="padding:20px;text-align:center;color:#666;font-size:13px;">点"查询"后加自选</div>';
+    return;
+  }
+  wl.forEach(item => {
+    const [code, name] = item.split("|");
+    const r = rt[code] || {};
+    const up = (r.change_percent || 0) >= 0;
+    box.innerHTML += `<div class="wl-item" data-code="${code}">
+      <div class="wl-left">
+        <span class="wl-name">${name || code}</span>
+        <span class="wl-code">${code}</span>
+      </div>
+      <div class="wl-right">
+        <span class="wl-price ${up ? 'up' : 'down'}">${r.price || '--'}</span>
+        <span class="wl-change ${up ? 'up' : 'down'}">${up ? '+' : ''}${r.change_percent || '--'}%</span>
+      </div>
+      <span class="wl-del" onclick="event.stopPropagation();delWl('${code}')">✕</span>
+    </div>`;
+  });
+  box.querySelectorAll(".wl-item").forEach(el => {
+    el.addEventListener("click", () => {
+      currentCode = el.dataset.code;
+      document.getElementById("search").value = currentCode;
+      loadChart(currentCode);
+    });
+  });
+}
+
+async function toggleWatchlist() {
+  const wl = await api("/api/watchlist");
+  const exists = wl.some(w => w.startsWith(currentCode + "|") || w === currentCode);
+  if (exists) {
+    await apiPost("/api/watchlist", {action:"remove", code: currentCode});
+    showToast("已移除自选");
+  } else {
+    await apiPost("/api/watchlist", {action:"add", code: currentCode});
+    showToast("已添加自选");
+  }
+  loadWatchlist();
+}
+async function delWl(code) {
+  await apiPost("/api/watchlist", {action:"remove", code});
+  loadWatchlist();
+}
+
+function showToast(m) {
+  const t = document.getElementById("toast");
+  t.textContent = m; t.style.display = "block";
+}
+function hideToast() { document.getElementById("toast").style.display = "none"; }
+
+// ─── Canvas 绘制 ───
+function setupCanvas(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext("2d");
+  ctx.scale(dpr, dpr);
+  return { ctx, w, h };
+}
+
+function drawAll() {
+  const c1 = document.getElementById("candle");
+  const c2 = document.getElementById("sub");
+  const { ctx: cx, w, h } = setupCanvas(c1);
+  const { ctx: sx, w: sw, h: sh } = setupCanvas(c2);
+  if (chartData.length === 0) return;
+
+  // 蜡烛图 + 成交量
+  drawCandles(cx, w, h);
+  drawVolume(cx, w, h);
+
+  // 副图
+  if (currentTab === "kdj") drawKDJ(sx, sw, sh);
+  else if (currentTab === "rsi") drawRSI(sx, sw, sh);
+  else drawMACD(sx, sw, sh);
+}
+
+function drawCandles(ctx, W, H) {
+  const data = chartData;
+  const padL = 38, padR = 8, padT = 8, padB = 24;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB - H * 0.18; // 留空间给成交量
+  const n = data.length;
+  const bw = plotW / n;
+  const cw = Math.max(bw * 0.7, 2);
+
+  // 范围
+  let max = -Infinity, min = Infinity;
+  data.forEach(d => {
+    max = Math.max(max, d.high, d.ma5 || -Infinity, d.ma20 || -Infinity, d.ma60 || -Infinity);
+    min = Math.min(min, d.low, d.ma5 || Infinity, d.ma20 || Infinity, d.ma60 || Infinity);
+  });
+  const range = max - min || 1;
+  const y = v => padT + (max - v) / range * plotH;
+
+  // 背景网格
+  ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#2a2a4e"; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const yy = padT + plotH * i / 4;
+    ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(W - padR, yy); ctx.stroke();
+    ctx.fillStyle = "#888"; ctx.font = "10px sans-serif"; ctx.textAlign = "right";
+    ctx.fillText(max - range * i / 4, padL - 4, yy + 3);
+  }
+
+  // K线
+  data.forEach((d, i) => {
+    const x = padL + i * bw + bw / 2;
+    const up = d.close >= d.open;
+    ctx.strokeStyle = ctx.fillStyle = up ? "#ff4757" : "#2ed573";
+    // 上下影
+    ctx.beginPath(); ctx.moveTo(x, y(d.high)); ctx.lineTo(x, y(d.low)); ctx.stroke();
+    // 实体
+    const yO = y(d.open), yC = y(d.close);
+    ctx.fillRect(x - cw/2, Math.min(yO, yC), cw, Math.max(1, Math.abs(yC - yO)));
+    // 买卖点
+    if (d.buy) {
+      ctx.fillStyle = "#ffd700"; ctx.beginPath();
+      ctx.moveTo(x, y(d.low) + 10); ctx.lineTo(x-5, y(d.low)+2); ctx.lineTo(x+5, y(d.low)+2);
+      ctx.fill();
+    }
+    if (d.sell) {
+      ctx.fillStyle = "#00e5ff"; ctx.beginPath();
+      ctx.moveTo(x, y(d.high) - 10); ctx.lineTo(x-5, y(d.high)-2); ctx.lineTo(x+5, y(d.high)-2);
+      ctx.fill();
+    }
+  });
+
+  // 均线
+  const drawMA = (key, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    let started = false;
+    data.forEach((d, i) => {
+      if (d[key] == null || isNaN(d[key])) return;
+      const x = padL + i * bw + bw / 2;
+      if (!started) { ctx.moveTo(x, y(d[key])); started = true; }
+      else ctx.lineTo(x, y(d[key]));
+    });
+    ctx.stroke();
+  };
+  drawMA("ma5", "#ffdd59");
+  drawMA("ma20", "#a29bfe");
+  drawMA("ma60", "#fd79a8");
+
+  // 日期标签
+  ctx.fillStyle = "#888"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+  const labelStep = Math.max(1, Math.floor(n / 6));
+  data.forEach((d, i) => {
+    if (i % labelStep === 0) {
+      const x = padL + i * bw + bw / 2;
+      const date = (d.date || "").slice(5);
+      ctx.fillText(date, x, H - 6);
+    }
+  });
+}
+
+function drawVolume(ctx, W, H) {
+  const data = chartData;
+  const padL = 38, padR = 8, padT = H - H * 0.16, padB = 14;
+  const plotW = W - padL - padR;
+  const plotH = H * 0.12;
+  const n = data.length;
+  const bw = plotW / n;
+  const cw = Math.max(bw * 0.6, 1.5);
+
+  let maxV = 0;
+  data.forEach(d => maxV = Math.max(maxV, d.volume || 0));
+  if (maxV === 0) return;
+  const y = v => padT + plotH - v / maxV * plotH;
+
+  data.forEach((d, i) => {
+    const x = padL + i * bw + bw / 2;
+    const up = d.close >= d.open;
+    ctx.fillStyle = up ? "#ff4757" : "#2ed573";
+    ctx.fillRect(x - cw/2, y(d.volume || 0), cw, plotH);
+  });
+
+  ctx.strokeStyle = "#333"; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(W - padR, padT); ctx.stroke();
+}
+
+function drawMACD(ctx, W, H) {
+  drawIndicator(ctx, W, H, "dif", "dea", "macd", "MACD");
+}
+function drawKDJ(ctx, W, H) {
+  drawIndicator(ctx, W, H, "k", "d", "j", "KDJ", [-50, 150]);
+}
+function drawRSI(ctx, W, H) {
+  drawIndicator(ctx, W, H, "rsi", null, null, "RSI", [0, 100]);
+}
+
+function drawIndicator(ctx, W, H, k1, k2, k3, label, fixedRange) {
+  const data = chartData;
+  const padL = 38, padR = 8, padT = 6, padB = 18;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const n = data.length;
+  const bw = plotW / n;
+
+  // 背景
+  ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#888"; ctx.font = "10px sans-serif"; ctx.textAlign = "left";
+  ctx.fillText(label, padL, padT + 12);
+
+  let max, min;
+  if (fixedRange) { [min, max] = fixedRange; }
+  else {
+    max = -Infinity; min = Infinity;
+    data.forEach(d => {
+      [d[k1], d[k2], d[k3]].forEach(v => {
+        if (v != null && !isNaN(v)) { max = Math.max(max, v); min = Math.min(min, v); }
+      });
+    });
+  }
+  const range = (max - min) || 1;
+  const y = v => padT + (max - v) / range * plotH;
+
+  // 网格 + 零线
+  ctx.strokeStyle = "#2a2a4e"; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(padL, y(0)); ctx.lineTo(W-padR, y(0)); ctx.stroke();
+  for (let i = 0; i <= 2; i++) {
+    const yy = padT + plotH * i / 2;
+    ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(W-padR, yy); ctx.stroke();
+  }
+
+  // MACD 柱
+  if (k3) {
+    data.forEach((d, i) => {
+      if (d[k3] == null) return;
+      const x = padL + i * bw + bw / 2;
+      const h = (Math.abs(d[k3]) / range) * plotH;
+      const y0 = d[k3] >= 0 ? y(0) - h : y(0);
+      ctx.fillStyle = d[k3] >= 0 ? "#ff4757" : "#2ed573";
+      ctx.fillRect(x - Math.max(bw*0.5, 1.5), y0, Math.max(bw*0.5, 3), h);
+    });
+  }
+
+  // 折线
+  const drawLine = (key, color) => {
+    if (!key) return;
+    ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.beginPath(); let started = false;
+    data.forEach((d, i) => {
+      if (d[key] == null || isNaN(d[key])) return;
+      const x = padL + i * bw + bw / 2;
+      if (!started) { ctx.moveTo(x, y(d[key])); started = true; }
+      else ctx.lineTo(x, y(d[key]));
+    });
+    ctx.stroke();
+  };
+  drawLine(k1, "#ffdd59");
+  drawLine(k2, "#a29bfe");
+  drawLine(k3 ? null : null, null); // 占位
+}
+</script>
+</body>
+</html>

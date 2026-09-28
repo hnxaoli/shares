@@ -1,52 +1,10 @@
 #!/usr/bin/env python3
-"""精确 patch python-for-android: venv pip 升级改用 --force-reinstall。
+"""终极 patch: 精确替换 build.py 里的 pip 升级命令字符串。
 
-p4a 在最后阶段创建 venv 并执行 `pip install -U pip`，
-但 hostpython3 自带旧 pip，升级时新旧 pip 文件混搭，导致：
-  ImportError: cannot import name 'open_rich_spinner'
-
-修法：把 `pip install -U pip` / `pip install --upgrade pip`
-      改成 `pip install --force-reinstall pip`
-      → 强制重装所有 pip 文件，完整替换，不会混搭。
+根因: build.py:878 创建 venv (用 hostpython3 3.11.9) 后升级 pip 会混搭文件。
+修法: 在那行 shell 命令里，升级 pip **前**先 patch venv 的 spinners.py。
 """
-import os
-import sys
-import re
-
-def patch_file(filepath):
-    with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-        content = f.read()
-    
-    original = content
-    changed = False
-    
-    # 精确替换：pip install -U pip → pip install --force-reinstall pip
-    # 匹配所有变体: -U pip, --upgrade pip, -U 'pip', --upgrade "pip"
-    def replace_pip_upgrade(m):
-        nonlocal changed
-        changed = True
-        return m.group(0).replace('-U', '--force-reinstall').replace('--upgrade', '--force-reinstall').replace('  ', ' ')
-    
-    # 用 re.sub 替换所有 pip install -U pip / --upgrade pip 变体
-    new_content = re.sub(
-        r'pip\s+install\s+(-U|--upgrade)\s+["\']?pip["\']?',
-        replace_pip_upgrade,
-        content,
-        flags=re.IGNORECASE
-    )
-    
-    if new_content != original:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(new_content)
-        
-        # 打印哪些行被改了
-        for i, (old_l, new_l) in enumerate(zip(original.split('\n'), new_content.split('\n'))):
-            if old_l != new_l and 'pip install' in old_l.lower():
-                print(f"  [{i+1}] {old_l.strip()[:120]}")
-                print(f"       → {new_l.strip()[:120]}")
-        
-        return True
-    return False
+import os, sys, shutil
 
 def main():
     try:
@@ -56,46 +14,87 @@ def main():
         print("ERROR: python-for-android 未安装")
         sys.exit(1)
     
-    print(f"p4a 目录: {p4a_dir}")
-    print("")
+    print(f"p4a: {p4a_dir}")
     
-    patched_files = 0
-    for root, dirs, files in os.walk(p4a_dir):
-        dirs[:] = [d for d in dirs if d != '__pycache__']
-        for f in files:
-            if f.endswith('.py'):
-                fp = os.path.join(root, f)
-                if patch_file(fp):
-                    patched_files += 1
+    # 1. 找 build.py
+    build_py = os.path.join(p4a_dir, 'build.py')
+    if not os.path.exists(build_py):
+        print(f"ERROR: 找不到 build.py 在 {p4a_dir}")
+        sys.exit(1)
     
-    print(f"\n=== Patch 完成: {patched_files} 个文件被修改 ===")
+    with open(build_py, 'r', encoding='utf-8', errors='replace') as f:
+        content = f.read()
     
-    # ⚠️ 关键：删掉所有 __pycache__，否则 Python 加载旧 .pyc 字节码！
-    print("\n=== 清理 __pycache__ ===")
-    import shutil
-    pycache_count = 0
+    original = content
+    
+    # 原始行 (build.py:878)
+    OLD = '"source venv/bin/activate && pip install -U pip"'
+    
+    # 新: 先 patch venv spinners.py，再 force-reinstall
+    # venv/bin/python 自带正确的 pip 模块位置，用来 patch venv 自己
+    NEW = (
+        '"source venv/bin/activate && '
+        'venv/bin/python -c "'
+        'import os;'
+        'import pip._internal.cli.spinners as _s;'
+        '_p=_s.__file__;'
+        '_c=open(_p).read();'
+        '_patch=chr(10)*2+"def open_rich_spinner(*a,**kw):\\n    from pip._internal.cli.spinners import open_spinner\\n    return open_spinner(*a,**kw)\\n";'
+        'open(_p,"a").write(_patch) if "def open_rich_spinner" not in _c else None;'
+        '" && '
+        'pip install --force-reinstall pip"'
+    )
+    
+    if OLD in content:
+        content = content.replace(OLD, NEW)
+        print(f"✓ 精确匹配并替换了 pip 升级命令")
+    elif 'source venv/bin/activate' in content and 'pip install' in content:
+        # 模糊搜索（不管引号格式）
+        for line in content.split('\n'):
+            if 'source venv/bin/activate' in line and 'pip install' in line and 'spinners' not in line:
+                print(f"  找到类似行: {line.strip()[:150]}")
+                # 直接替换整行字符串
+                import re
+                new_line = re.sub(
+                    r'"source venv/bin/activate && pip install[^"]*"',
+                    NEW,
+                    line
+                )
+                if new_line != line:
+                    content = content.replace(line, new_line)
+                    print(f"✓ 已替换")
+                break
+    
+    if content == original:
+        print("⚠️ 没找到要替换的行！可能 build.py 格式变了")
+        # 打印所有含 pip install 的行
+        for i, line in enumerate(content.split('\n')):
+            if 'pip install' in line and 'venv' in line.lower():
+                print(f"  [{i}] {line.strip()[:200]}")
+        sys.exit(1)
+    
+    with open(build_py, 'w', encoding='utf-8') as f:
+        f.write(content)
+    print(f"✓ build.py 已更新")
+    
+    # 2. 清 __pycache__
+    print("\n=== 清 __pycache__ ===")
+    count = 0
     for root, dirs, files in os.walk(p4a_dir):
         for d in list(dirs):
             if d == '__pycache__':
-                p = os.path.join(root, d)
-                shutil.rmtree(p)
-                pycache_count += 1
-    print(f"已删除 {pycache_count} 个 __pycache__ 目录")
+                shutil.rmtree(os.path.join(root, d))
+                count += 1
+    print(f"已删 {count} 个 __pycache__")
     
-    # 验证：确认没有遗留的 -U pip / --upgrade pip（除了我们改的 --force-reinstall）
+    # 3. 验证
     print("\n=== 验证 ===")
-    import subprocess
-    result = subprocess.run(
-        ['grep', '-rn', 'pip install.*-U.*pip\\|pip install.*--upgrade.*pip', p4a_dir, '--include=*.py'],
-        capture_output=True, text=True
-    )
-    remaining = [l for l in result.stdout.splitlines() if '--force-reinstall' not in l]
-    if remaining:
-        print("仍有未修改的 pip 升级代码:")
-        for l in remaining:
-            print(f"  {l[:200]}")
-    else:
-        print("✓ 所有 pip 升级已改为 --force-reinstall")
+    with open(build_py, 'r', encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            if 'source venv/bin/activate' in line and 'pip install' in line:
+                print(f"  build.py:{i+1}: {line.strip()[:200]}")
+    
+    return 0
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

@@ -37,9 +37,12 @@ jobs:
           # 验证 pip 完整（build_env.py 能成功 import spinners）
           python3 -c "from pip._internal.cli.spinners import open_rich_spinner; print('pip OK: open_rich_spinner available')"
 
-      - name: Patch p4a libffi recipe
+      - name: Patch p4a libffi recipe + disable venv pip upgrade
         run: |
-          # p4a 内置 libffi recipe 强制跑 `autoreconf -vif`，在 Ubuntu 24.04 上失败
+          # 1) p4a 内置 libffi recipe 强制跑 `autoreconf -vif`，在 Ubuntu 24.04 上失败
+          # 2) p4a 在最后阶段创建 venv 后执行 `pip install -U pip`，
+          #    hostpython3 自带旧 pip，升级时 venv 内 pip 文件混搭
+          #    → ImportError: cannot import name 'open_rich_spinner'
           P4A_DIR=$(python3 -c "import pythonforandroid; import os; print(os.path.dirname(pythonforandroid.__file__))")
           echo "p4a 安装目录: $P4A_DIR"
           echo ""
@@ -47,16 +50,10 @@ jobs:
           sudo cp recipes/libffi/__init__.py "$P4A_DIR/recipes/libffi/__init__.py"
           sudo cp recipes/libffi/remove-version-info.patch "$P4A_DIR/recipes/libffi/remove-version-info.patch"
           echo ""
-          echo "=== Patch p4a: 禁用 venv pip 升级 ==="
-          # p4a 在最后阶段创建 venv 并执行 `pip install -U pip`
-          # 但 hostpython3 自带旧 pip，升级后 venv 内 pip 文件混搭
-          # 导致 ImportError: cannot import name 'open_rich_spinner'
-          # → 找到 pythonpackage.py / toolchain.py 里的 pip 升级代码，注释掉
-          grep -rn "Upgrade pip\|pip install.*-U.*pip\|pip install.*--upgrade.*pip" "$P4A_DIR/" --include="*.py" | head -20
-          # 用 sed 注释掉含 "Upgrade pip" 或 "pip install -U pip" 的行
-          sudo find "$P4A_DIR" -name "*.py" -exec sed -i '/Upgrade pip/{s/^/#PATCHED: /; n; s/pip install/pip install #DISABLED /}' {} +
-          sudo find "$P4A_DIR" -name "*.py" -exec sed -i '/pip install.*-U pip\|pip install.*--upgrade.*pip/{s/^/#PATCHED: /}' {} +
-          echo "=== p4a pip 升级已禁用 ==="
+          echo "=== Python patch p4a: 禁用 venv pip 升级 ==="
+          python3 patch_p4a.py
+          echo ""
+          echo "=== Patch 完成 ==="
 
       - name: Build APK
         env:

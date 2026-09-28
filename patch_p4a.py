@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""精确 patch python-for-android: 禁用 venv 里的 pip 升级。
+"""精确 patch python-for-android: venv pip 升级改用 --force-reinstall。
 
 p4a 在最后阶段创建 venv 并执行 `pip install -U pip`，
 但 hostpython3 自带旧 pip，升级时新旧 pip 文件混搭，导致：
   ImportError: cannot import name 'open_rich_spinner'
 
-修法：找到 pip 升级相关代码，注释掉。
+修法：把 `pip install -U pip` / `pip install --upgrade pip`
+      改成 `pip install --force-reinstall pip`
+      → 强制重装所有 pip 文件，完整替换，不会混搭。
 """
 import os
 import sys
@@ -16,46 +18,37 @@ def patch_file(filepath):
         content = f.read()
     
     original = content
-    lines = content.split('\n')
-    new_lines = []
     changed = False
     
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-        
-        # 匹配 pip 升级相关行
-        # 1. 注释里有 "Upgrade pip"
-        # 2. 执行 pip install -U pip / pip install --upgrade pip
-        if re.search(r'Upgrade pip', line, re.IGNORECASE):
-            # 注释掉这行
-            if not line.strip().startswith('#'):
-                new_lines.append('#PATCHED-PIP-UPGRADE: ' + line)
-                changed = True
-                print(f"  [注释掉] 'Upgrade pip' 注释 @ {filepath}:{i+1}")
-                i += 1
-                continue
-        
-        if re.search(r'pip\s+install.*(-U|--upgrade)\s+pip', line, re.IGNORECASE):
-            if not line.strip().startswith('#'):
-                new_lines.append('#PATCHED-PIP-UPGRADE: ' + line)
-                changed = True
-                print(f"  [注释掉] pip 升级命令 @ {filepath}:{i+1}")
-                i += 1
-                continue
-        
-        new_lines.append(line)
-        i += 1
+    # 精确替换：pip install -U pip → pip install --force-reinstall pip
+    # 匹配所有变体: -U pip, --upgrade pip, -U 'pip', --upgrade "pip"
+    def replace_pip_upgrade(m):
+        nonlocal changed
+        changed = True
+        return m.group(0).replace('-U', '--force-reinstall').replace('--upgrade', '--force-reinstall').replace('  ', ' ')
     
-    if changed:
+    # 用 re.sub 替换所有 pip install -U pip / --upgrade pip 变体
+    new_content = re.sub(
+        r'pip\s+install\s+(-U|--upgrade)\s+["\']?pip["\']?',
+        replace_pip_upgrade,
+        content,
+        flags=re.IGNORECASE
+    )
+    
+    if new_content != original:
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(new_lines))
+            f.write(new_content)
+        
+        # 打印哪些行被改了
+        for i, (old_l, new_l) in enumerate(zip(original.split('\n'), new_content.split('\n'))):
+            if old_l != new_l and 'pip install' in old_l.lower():
+                print(f"  [{i+1}] {old_l.strip()[:120]}")
+                print(f"       → {new_l.strip()[:120]}")
+        
         return True
     return False
 
 def main():
-    # 找到 p4a 安装目录
     try:
         import pythonforandroid
         p4a_dir = os.path.dirname(pythonforandroid.__file__)
@@ -68,7 +61,6 @@ def main():
     
     patched_files = 0
     for root, dirs, files in os.walk(p4a_dir):
-        # 跳过 __pycache__
         dirs[:] = [d for d in dirs if d != '__pycache__']
         for f in files:
             if f.endswith('.py'):
@@ -78,20 +70,20 @@ def main():
     
     print(f"\n=== Patch 完成: {patched_files} 个文件被修改 ===")
     
-    # 验证
-    print("\n=== 验证剩余 pip 升级代码 ===")
+    # 验证：确认没有遗留的 -U pip / --upgrade pip（除了我们改的 --force-reinstall）
+    print("\n=== 验证 ===")
     import subprocess
     result = subprocess.run(
-        ['grep', '-rn', 'pip install.*-U.*pip\|pip install.*--upgrade.*pip\|Upgrade pip', p4a_dir, '--include=*.py'],
+        ['grep', '-rn', 'pip install.*-U.*pip\\|pip install.*--upgrade.*pip', p4a_dir, '--include=*.py'],
         capture_output=True, text=True
     )
-    remaining = [l for l in result.stdout.splitlines() if not l.strip().startswith('#')]
+    remaining = [l for l in result.stdout.splitlines() if '--force-reinstall' not in l]
     if remaining:
-        print("仍有未注释的 pip 升级代码:")
+        print("仍有未修改的 pip 升级代码:")
         for l in remaining:
             print(f"  {l[:200]}")
     else:
-        print("✓ 所有 pip 升级代码已注释")
+        print("✓ 所有 pip 升级已改为 --force-reinstall")
 
 if __name__ == '__main__':
     main()

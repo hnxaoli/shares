@@ -37,23 +37,28 @@ jobs:
           # 验证 pip 完整（build_env.py 能成功 import spinners）
           python3 -c "from pip._internal.cli.spinners import open_rich_spinner; print('pip OK: open_rich_spinner available')"
 
-      - name: Patch p4a libffi recipe + disable venv pip upgrade
+      - name: Patch p4a + pip
         run: |
-          # 1) p4a 内置 libffi recipe 强制跑 `autoreconf -vif`，在 Ubuntu 24.04 上失败
-          # 2) p4a 在最后阶段创建 venv 后执行 `pip install -U pip`，
-          #    hostpython3 自带旧 pip，升级时 venv 内 pip 文件混搭
-          #    → ImportError: cannot import name 'open_rich_spinner'
           P4A_DIR=$(python3 -c "import pythonforandroid; import os; print(os.path.dirname(pythonforandroid.__file__))")
-          echo "p4a 安装目录: $P4A_DIR"
+          echo "p4a: $P4A_DIR"
           echo ""
-          echo "=== 覆盖 libffi recipe ==="
+
+          echo "=== 1. patch_pip.py: 给 spinners.py 加 open_rich_spinner fallback ==="
+          # 终极修法：p4a 创建 venv 后 pip 升级会混搭文件，旧 spinners.py 没有 open_rich_spinner
+          # → 直接给 host python 的 spinners.py 加 dummy，venv 继承后混搭也不怕
+          python3 patch_pip.py
+
+          echo ""
+          echo "=== 2. 覆盖 libffi recipe ==="
           sudo cp recipes/libffi/__init__.py "$P4A_DIR/recipes/libffi/__init__.py"
           sudo cp recipes/libffi/remove-version-info.patch "$P4A_DIR/recipes/libffi/remove-version-info.patch"
+
           echo ""
-          echo "=== Python patch p4a: 禁用 venv pip 升级 ==="
+          echo "=== 3. patch_p4a.py: -U → --force-reinstall + 清 __pycache__ ==="
           python3 patch_p4a.py
+
           echo ""
-          echo "=== Patch 完成 ==="
+          echo "=== 全部 Patch 完成 ==="
 
       - name: Build APK
         env:

@@ -40,19 +40,23 @@ jobs:
       - name: Patch p4a libffi recipe
         run: |
           # p4a 内置 libffi recipe 强制跑 `autoreconf -vif`，在 Ubuntu 24.04 上失败
-          # 直接用我们跳过 autoreconf 的版本覆盖内置 recipe
           P4A_DIR=$(python3 -c "import pythonforandroid; import os; print(os.path.dirname(pythonforandroid.__file__))")
           echo "p4a 安装目录: $P4A_DIR"
           echo ""
           echo "=== 覆盖 libffi recipe ==="
-          echo "复制 recipes/libffi/__init__.py -> $P4A_DIR/recipes/libffi/__init__.py"
           sudo cp recipes/libffi/__init__.py "$P4A_DIR/recipes/libffi/__init__.py"
-          echo "复制 recipes/libffi/remove-version-info.patch -> $P4A_DIR/recipes/libffi/remove-version-info.patch"
           sudo cp recipes/libffi/remove-version-info.patch "$P4A_DIR/recipes/libffi/remove-version-info.patch"
           echo ""
-          echo "=== 验证 patch 后的 recipe ==="
-          grep -n "autoreconf\|autogen\|configure" "$P4A_DIR/recipes/libffi/__init__.py" || true
-          echo "=== Recipe patch 完成 ==="
+          echo "=== Patch p4a: 禁用 venv pip 升级 ==="
+          # p4a 在最后阶段创建 venv 并执行 `pip install -U pip`
+          # 但 hostpython3 自带旧 pip，升级后 venv 内 pip 文件混搭
+          # 导致 ImportError: cannot import name 'open_rich_spinner'
+          # → 找到 pythonpackage.py / toolchain.py 里的 pip 升级代码，注释掉
+          grep -rn "Upgrade pip\|pip install.*-U.*pip\|pip install.*--upgrade.*pip" "$P4A_DIR/" --include="*.py" | head -20
+          # 用 sed 注释掉含 "Upgrade pip" 或 "pip install -U pip" 的行
+          sudo find "$P4A_DIR" -name "*.py" -exec sed -i '/Upgrade pip/{s/^/#PATCHED: /; n; s/pip install/pip install #DISABLED /}' {} +
+          sudo find "$P4A_DIR" -name "*.py" -exec sed -i '/pip install.*-U pip\|pip install.*--upgrade.*pip/{s/^/#PATCHED: /}' {} +
+          echo "=== p4a pip 升级已禁用 ==="
 
       - name: Build APK
         env:

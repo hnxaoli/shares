@@ -4,10 +4,9 @@
 数据: 新浪财经 / 腾讯财经 公共 API
 
 启动: python app_web.py
-依赖: pip install flask requests numpy pandas
+依赖: pip install flask requests  (仅此两个！零 numpy/pandas!)
 """
 import os, sys, json, threading
-import pandas as pd
 
 # 确保能 import stock_logic
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -42,20 +41,6 @@ def save_config(cfg):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 
-def df_to_json(df):
-    """DataFrame → list of dict (JSON 友好)"""
-    if df is None or len(df) == 0:
-        return []
-    df = df.reset_index()
-    # datetime → string
-    for c in df.columns:
-        if pd.api.types.is_datetime64_any_dtype(df[c]):
-            df[c] = df[c].dt.strftime("%Y-%m-%d")
-        elif pd.api.types.is_float_dtype(df[c]):
-            df[c] = df[c].round(4)
-    return df.to_dict(orient="records")
-
-
 # ─── 静态页面 ───
 @app.route("/")
 def index():
@@ -71,26 +56,26 @@ def api_chart():
         n = int(request.args.get("n", 500))
     except ValueError:
         n = 500
-    
-    df = fetch_hist(code, n=n)
-    if df is None or len(df) == 0:
+
+    rows = fetch_hist(code, n=n)
+    if not rows:
         return jsonify({"error": f"获取 {code} 数据失败"}), 404
-    
+
     if period == "week":
-        df = resample_ohlc(df, "W")
+        rows = resample_ohlc(rows, "W")
     elif period == "month":
-        df = resample_ohlc(df, "M")
-    
-    df = compute_indicators(df)
-    df = compute_kdj(df)
-    
-    # 取最近 n 条（前端 Canvas 绘制性能考虑）
-    df = df.tail(min(n, 500))
-    
+        rows = resample_ohlc(rows, "M")
+
+    rows = compute_indicators(rows)
+    rows = compute_kdj(rows)
+
+    # 取最近 min(n, 500) 条
+    rows = rows[-min(n, 500):]
+
     return jsonify({
         "code": code,
         "name": fetch_realtime_name(code),
-        "data": df_to_json(df),
+        "data": rows,
     })
 
 
@@ -101,7 +86,7 @@ def api_realtime():
     codes = [c.strip() for c in codes if c.strip()]
     if not codes:
         return jsonify({"error": "codes 为空"}), 400
-    
+
     result = fetch_realtime_batch(codes)
     return jsonify(result)
 
@@ -129,10 +114,10 @@ def api_watchlist_post():
     action = data.get("action", "add")
     code = data.get("code", "").strip()
     name = data.get("name", "").strip()
-    
+
     if not code:
         return jsonify({"error": "缺少 code"}), 400
-    
+
     with _config_lock:
         cfg = load_config()
         if action == "add":
@@ -144,7 +129,7 @@ def api_watchlist_post():
         elif action == "clear":
             cfg["watchlist"] = []
         save_config(cfg)
-    
+
     return jsonify(cfg.get("watchlist", []))
 
 
@@ -154,7 +139,6 @@ def api_search():
     q = request.args.get("q", "").strip()
     if not q:
         return jsonify([])
-    # 直接用实时接口查名称验证
     name = fetch_realtime_name(q)
     return jsonify({"code": q, "name": name})
 
